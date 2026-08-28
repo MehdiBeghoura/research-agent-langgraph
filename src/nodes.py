@@ -1,69 +1,56 @@
 from langgraph.types import Send
 from typing import Literal
-from langgraph.graph import END
-from src.llm import structured_model
+from src.llm import structured_model, client, verify_model, conflict_model, conflict_resolution_model, draft_model
 
-
-
+MAX_ATTEMPTS = 3
 
 def break_into_subtopics(state):
     topic = state["original_topic"]
-    prompt = f"Break this research topic into 3 distinct sub-angles to investigate separately: {topic}"
+    prompt = f"Break this research topic into exactly 3 distinct sub-angles to investigate separately: {topic}"
     result = structured_model.invoke(prompt)
     return {"subtopics": result.subtopics}
 
 
-
 def fan_out_to_search(state):
-    return [Send("search_one_subtopic", {"subtopic_text": s, "search_result":None, "attempts":0}) for s in state["subtopics"]]
+    return [Send("search_one_subtopic", {"subtopic_text": s}) for s in state["subtopics"]]
 
 
 def search_one_subtopic(state):
-    
-    search_result = f"Search result for {state['subtopic_text']}"
-    return {"search_result": search_result, "search_results": [search_result], "attempts": state["attempts"]+1}
-
-MAX_ATTEMPTS = 3
-
-def verify_result(state) -> Literal["search_one_subtopic", "conflict_check_node"]:
-    result = state["search_result"]
-    attempts = state["attempts"]
-
-    
-    is_good_enough = result is not None and len(result) > 20
-
-    if is_good_enough:
-        return "conflict_check_node"
-    elif attempts >= MAX_ATTEMPTS:
+    query = state["subtopic_text"]
+    for attempt in range(MAX_ATTEMPTS):
+        response = client.search(query=query, search_depth="advanced")
+        contents = [r["content"] for r in response["results"] if r.get("content")]
+        search_result = "\n\n".join(contents)
+        prompt = f"Subtopic: {query}\nSearch result: {search_result}\nDetermine whether the search result adequately answers the subtopic. Return true if it does, otherwise return false."
+        verdict = verify_model.invoke(prompt)
+        if verdict.is_good_enough or attempt == MAX_ATTEMPTS - 1:
+            return {"search_results": [search_result]}
         
-        return "conflict_check_node"
-    else:
-        return "search_one_subtopic"
-    
+        
 def conflict_check_node(state):
-    # exists only as a convergence point so LangGraph
-    
     return {}
 
-def conflict_check(state) -> Literal["resolve_conflict", "draft_response"]:
-    results = state["search_results"]
-    # Real version will compare actual content across sources for disagreement.
-    has_conflict = len(results) < 3
 
-    if has_conflict:
+def conflict_check(state) -> Literal["resolve_conflict", "draft_response"]:
+    combined = "\n\n".join(state["search_results"])
+    verdict = conflict_model.invoke(f"Compare these sources and determine whether they contain any factual disagreements.\n\nSources:\n{combined}")
+    if verdict.has_conflict:
         return "resolve_conflict"
-    else:
-        return "draft_response"
-    
-    
-    
+    return "draft_response"
+
+
 def resolve_conflict(state):
-    # Real version will compare actual claims across results and explain the discrepancy.
-    conflict_note = "Sources appear to disagree on some details ,needs manual review."
-    return {"results_conflicts": conflict_note}
+    combined = "\n\n".join(state["search_results"])
+    verdict = conflict_resolution_model.invoke(f"Identify the conflicting claims, determine which claims are better supported, and explain how the disagreement should be handled.\n\nSources:\n{combined}")
+    return {"results_conflicts": verdict.resolution}
+
 
 def draft_response(state):
-    # Real version will synthesize information from the search results into a coherent response.
-    draft = "Draft response based on search results."
-    return {"draft_response": draft}
-    
+    combined = "\n\n".join(state["search_results"])
+    conflict_note = state.get("results_conflicts")
+    prompt = f"Topic: {state['original_topic']}\n\nSources:\n{combined}\n\n"
+    if conflict_note:
+        prompt += f"Note: {conflict_note}\n\n"
+    prompt += "Write a concise, well-organized research brief answering the topic, citing key points from the sources."
+    response = draft_model.invoke(prompt)
+    return {"draft_response": response.content}
