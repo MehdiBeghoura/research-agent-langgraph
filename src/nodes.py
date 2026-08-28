@@ -1,14 +1,16 @@
 from langgraph.types import Send
 from typing import Literal
 from langgraph.graph import END
+from src.llm import structured_model
+
+
+
+
 def break_into_subtopics(state):
-    # will call an LLM later.
-    subtopics = [
-      "cache invalidation approaches in backend systems",
-      "write-through vs write-back caching strategies",
-      "distributed cache consistency techniques",
-    ]
-    return {"subtopics": subtopics}
+    topic = state["original_topic"]
+    prompt = f"Break this research topic into 3 distinct sub-angles to investigate separately: {topic}"
+    result = structured_model.invoke(prompt)
+    return {"subtopics": result.subtopics}
 
 
 
