@@ -19,12 +19,18 @@ def search_one_subtopic(state):
     query = state["subtopic_text"]
     for attempt in range(MAX_ATTEMPTS):
         response = client.search(query=query, search_depth="advanced")
-        contents = [r["content"] for r in response["results"] if r.get("content")]
+        results = [r for r in response["results"] if r.get("content")]
+        contents = [r["content"] for r in results]
         search_result = "\n\n".join(contents)
+        sources = [{"title": r["title"], "url": r["url"]} for r in results]
         prompt = f"Subtopic: {query}\nSearch result: {search_result}\nDetermine whether the search result adequately answers the subtopic. Return true if it does, otherwise return false."
-        verdict = verify_model.invoke(prompt)
-        if verdict.is_good_enough or attempt == MAX_ATTEMPTS - 1:
-            return {"search_results": [search_result]}
+        try:
+            verdict = verify_model.invoke(prompt)
+            is_good = verdict.is_good_enough
+        except Exception:
+            is_good = False
+        if is_good or attempt == MAX_ATTEMPTS - 1:
+            return {"search_results": [search_result], "sources": sources}
         
         
 def conflict_check_node(state):
@@ -51,6 +57,6 @@ def draft_response(state):
     prompt = f"Topic: {state['original_topic']}\n\nSources:\n{combined}\n\n"
     if conflict_note:
         prompt += f"Note: {conflict_note}\n\n"
-    prompt += "Write a concise, well-organized research brief answering the topic, citing key points from the sources."
+    prompt += "Write a concise, well-organized research brief answering the topic, citing key points from the sources. Do not include a references or citations section — sources will be listed separately by the application."
     response = draft_model.invoke(prompt)
     return {"draft_response": response.content}
