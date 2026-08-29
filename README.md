@@ -36,9 +36,10 @@ cp .env.example .env
 
 Fill in `.env` with your own keys:
 
+```
 GROQ_API_KEY=your_groq_api_key_here
 TAVILY_API_KEY=your_tavily_api_key_here
-
+```
 
 Both keys are free to obtain from [Groq Console](https://console.groq.com) and [Tavily](https://tavily.com).
 
@@ -58,14 +59,15 @@ Enter a research topic and the agent will investigate it, showing progress and a
 
 ## Project structure
 
+```
 src/
-state.py # graph state schemas
-llm.py # model + search tool setup
-nodes.py # node and routing function definitions
-graph.py # graph assembly
-main.py # CLI entry point
-app.py # Streamlit UI
-
+  state.py    # graph state schemas
+  llm.py      # model + search tool setup
+  nodes.py    # node and routing function definitions
+  graph.py    # graph assembly
+  main.py     # CLI entry point
+app.py        # Streamlit UI
+```
 
 ## Status
 
